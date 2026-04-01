@@ -14,7 +14,7 @@ export default defineConfig({
   site: 'https://ranking.socplanner.com',
   
   security: {
-    checkOrigin: true
+    checkOrigin: false
   },
 
   vite: {
