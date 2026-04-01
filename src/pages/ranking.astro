@@ -1,0 +1,164 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+
+if (!Astro.cookies.has('user_id')) {
+  return Astro.redirect('/');
+}
+
+// Renderizado inicial en el servidor
+const { data: leaderboard, error } = await supabase
+  .from('leaderboard')
+  .select('*')
+  .order('total_points', { ascending: false });
+
+if (error) console.error('Error fetching leaderboard:', error);
+
+const getMedal = (index: number) => {
+  if (index === 0) return '🥇';
+  if (index === 1) return '🥈';
+  if (index === 2) return '🥉';
+  return `<span class="rank-number">${index + 1}</span>`;
+};
+---
+
+<Layout title="Ranking">
+  <div class="header-container">
+    <h1>Clasificación</h1>
+    <div class="live-indicator">
+      <span class="pulse"></span> En vivo
+    </div>
+  </div>
+  
+  <div class="ranking-list">
+    {leaderboard?.map((user, index) => (
+      <a href={`/user/${user.id}`} class={`ranking-item card ${index === 0 ? 'first-place' : ''}`}>
+        <div class="position" set:html={getMedal(index)} />
+        <div class="user-info">
+          <span class="name">{user.name}</span>
+        </div>
+        <div class="points-badge">
+          {user.total_points} pts
+        </div>
+      </a>
+    ))}
+  </div>
+</Layout>
+
+<script>
+  import { supabase } from '../lib/supabase';
+
+  // Suscripción WebSocket para Reactividad en Tiempo Real
+  const setupRealtime = () => {
+    supabase.channel('public:activity_log')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'activity_log' },
+        () => {
+          // Astro.refresh() recarga el contenido sin perder el estado de navegación
+          // o hacer un flash blanco si se usan ViewTransitions
+          window.location.reload(); 
+        }
+      )
+      .subscribe();
+  };
+
+  // Inicializar en carga y re-navegación (Astro View Transitions)
+  document.addEventListener('astro:page-load', setupRealtime);
+</script>
+
+<style>
+  .header-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+  h1 { margin-bottom: 0; }
+  
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 4px 10px;
+    border-radius: 20px;
+  }
+  .pulse {
+    width: 8px;
+    height: 8px;
+    background-color: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    animation: pulse 1.5s infinite;
+  }
+  
+  .ranking-list { 
+    display: flex; 
+    flex-direction: column; 
+    gap: 0.75rem; 
+  }
+  
+  .ranking-item {
+    display: flex;
+    align-items: center;
+    padding: 1rem;
+    margin-bottom: 0;
+    text-decoration: none;
+    color: inherit;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+  }
+  
+  .first-place {
+    border-color: rgba(250, 204, 21, 0.3);
+    background: linear-gradient(145deg, var(--surface-color) 0%, rgba(250, 204, 21, 0.05) 100%);
+  }
+  
+  .ranking-item:active { 
+    transform: scale(0.98); 
+    background-color: var(--bg-color); 
+  }
+  
+  .position { 
+    width: 45px; 
+    font-size: 1.5rem; 
+    display: flex;
+    justify-content: center;
+  }
+  
+  :global(.rank-number) {
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--text-muted);
+  }
+  
+  .user-info { 
+    flex: 1; 
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .name { 
+    font-size: 1.1rem; 
+    font-weight: 600; 
+  }
+  
+  .points-badge { 
+    background: var(--primary);
+    color: white;
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.95rem; 
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+  }
+
+  @keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+</style>

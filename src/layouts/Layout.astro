@@ -1,0 +1,141 @@
+---
+import { supabase } from '../lib/supabase';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const userId = Astro.cookies.get('user_id')?.value;
+const currentPath = Astro.url.pathname;
+
+let isAdmin = false;
+
+// Verificamos si el usuario actual tiene privilegios de administrador
+if (userId) {
+  const { data } = await supabase
+    .from('users')
+    .select('is_admin')
+    .eq('id', userId)
+    .single();
+    
+  isAdmin = data?.is_admin || false;
+}
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>{title} | Liga Vacaciones</title>
+  </head>
+  <body>
+    <header class="top-bar">
+      <span class="logo"> 🍷 Logroño {new Date().getFullYear()}</span>
+      {userId && <a href="/api/logout" class="logout-link">Salir</a>}
+    </header>
+
+    <main class="main-content">
+      <slot />
+    </main>
+
+    {userId && (
+      <nav class="mobile-nav">
+        <a href="/ranking" class={currentPath === '/ranking' ? 'active' : ''}>
+          <span class="icon">🏆</span>
+          <span class="label">Ranking</span>
+        </a>
+        <a href="/add-points" class={currentPath === '/add-points' ? 'active' : ''}>
+          <span class="icon">➕</span>
+          <span class="label">Sumar</span>
+        </a>
+        <a href={`/user/${userId}`} class={currentPath === `/user/${userId}` ? 'active' : ''}>
+          <span class="icon">👤</span>
+          <span class="label">Perfil</span>
+        </a>
+        {isAdmin && (
+          <a href="/admin/dashboard" class={currentPath.startsWith('/admin') ? 'active' : ''}>
+            <span class="icon">⚙️</span>
+            <span class="label">Admin</span>
+          </a>
+        )}
+      </nav>
+    )}
+
+    <style is:global>
+      :root {
+        --bg: #0b0f1a;
+        --surface: #161c2d;
+        --primary: #3b82f6;
+        --text: #f8fafc;
+        --text-dim: #94a3b8;
+        --radius: 16px;
+        --danger: #ef4444;
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: 'Inter', system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        padding-bottom: 90px;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .top-bar {
+        display: flex;
+        justify-content: space-between;
+        padding: 1rem 1.5rem;
+        background: var(--surface);
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+      }
+      .logo { font-weight: 800; letter-spacing: -0.5px; }
+      .logout-link { font-size: 0.8rem; color: var(--text-dim); text-decoration: none; padding: 4px; }
+
+      .main-content { padding: 1.5rem; max-width: 500px; margin: 0 auto; }
+
+      .card {
+        background: var(--surface);
+        border-radius: var(--radius);
+        padding: 1.25rem;
+        border: 1px solid rgba(255,255,255,0.05);
+      }
+
+      /* Navegación móvil flexible */
+      .mobile-nav {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 75px;
+        background: rgba(22, 28, 45, 0.95);
+        backdrop-filter: blur(10px);
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        padding-bottom: env(safe-area-inset-bottom);
+        z-index: 1000;
+      }
+
+      .mobile-nav a {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        color: var(--text-dim);
+        gap: 4px;
+        transition: 0.2s;
+        flex: 1;
+        height: 100%;
+      }
+
+      .mobile-nav a.active { color: var(--primary); }
+      .icon { font-size: 1.4rem; }
+      .label { font-size: 0.7rem; font-weight: 600; }
+    </style>
+  </body>
+</html>

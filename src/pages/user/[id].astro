@@ -1,0 +1,264 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { supabase } from '../../lib/supabase';
+
+const { id } = Astro.params;
+const cookieId = Astro.cookies.get('user_id')?.value;
+const isOwner = cookieId === id;
+
+// 1. Obtener datos del usuario
+const { data: user, error: userError } = await supabase
+  .from('users')
+  .select('*')
+  .eq('id', id)
+  .single();
+
+if (userError || !user) return Astro.redirect('/ranking');
+
+// 2. Obtener puntos totales (de la View)
+const { data: scoreData } = await supabase
+  .from('leaderboard')
+  .select('total_points')
+  .eq('id', id)
+  .single();
+
+// 3. Obtener historial
+const { data: history } = await supabase
+  .from('activity_log')
+  .select(`
+    id,
+    created_at,
+    actions (
+      description,
+      points,
+      categories ( name )
+    )
+  `)
+  .eq('user_id', id)
+  .order('created_at', { ascending: false });
+
+// 4. Lógica de subida de Avatar (Server Side)
+if (Astro.request.method === 'POST' && isOwner) {
+  const formData = await Astro.request.formData();
+  const file = formData.get('avatar') as File;
+
+  if (file && file.size > 0) {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${id}-${Date.now()}.${fileExt}`;
+    
+    // Subir a la carpeta 'avatars' (Asegúrate de que el bucket sea público en Supabase)
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(fileName, file);
+
+    if (!uploadError) {
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+      
+      // Actualizar la URL en la tabla de usuarios
+      await supabase.from('users').update({ avatar_url: publicUrl }).eq('id', id);
+      return Astro.redirect(`/user/${id}`);
+    }
+  }
+}
+
+const formatDate = (dateStr: string) => {
+  return new Date(dateStr).toLocaleDateString('es-ES', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+};
+---
+
+<Layout title={user.name}>
+  <div class="profile-header fade-in">
+    <div class="avatar-wrapper">
+      {user.avatar_url ? (
+        <img src={user.avatar_url} alt={user.name} class="profile-img" />
+      ) : (
+        <div class="avatar-placeholder">{user.name.charAt(0)}</div>
+      )}
+      
+      {isOwner && (
+        <form method="POST" enctype="multipart/form-data" class="upload-overlay">
+          <label for="avatar-upload" class="edit-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </label>
+          <input 
+            type="file" 
+            id="avatar-upload" 
+            name="avatar" 
+            accept="image/*" 
+            onchange="this.form.submit()" 
+            hidden 
+          />
+        </form>
+      )}
+    </div>
+
+    <h1>{user.name}</h1>
+    <div class="score-display">
+      <span class="score-number">{scoreData?.total_points || 0}</span>
+      <span class="score-label">PUNTOS TOTALES</span>
+    </div>
+  </div>
+
+  <section class="history-section fade-in" style="animation-delay: 0.1s;">
+    <h2 class="section-title">Historial de actividad</h2>
+    
+    <div class="history-list">
+      {history?.length === 0 && (
+        <div class="empty-state">
+          <p>Aún no hay registros de puntos.</p>
+        </div>
+      )}
+
+      {history?.map((entry) => {
+        const action = entry.actions as any;
+        return (
+          <div class="history-card card">
+            <div class="history-info">
+              <span class="cat-tag">{action.categories.name}</span>
+              <p class="action-desc">{action.description}</p>
+              <time class="action-time">{formatDate(entry.created_at)}</time>
+            </div>
+            <div class={`points-tag ${action.points >= 0 ? 'pos' : 'neg'}`}>
+              {action.points > 0 ? '+' : ''}{action.points}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .profile-header {
+    text-align: center;
+    padding: 2rem 0;
+    background: linear-gradient(to bottom, rgba(59, 130, 246, 0.1), transparent);
+    border-radius: 24px;
+    margin-bottom: 1rem;
+  }
+
+  /* Avatar System */
+  .avatar-wrapper {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 1.5rem;
+  }
+
+  .profile-img, .avatar-placeholder {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid var(--surface);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--primary);
+    font-size: 3rem;
+    font-weight: 800;
+    color: white;
+  }
+
+  .edit-btn {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    background: var(--primary);
+    color: white;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: 3px solid var(--bg);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+    transition: transform 0.2s;
+  }
+  .edit-btn:active { transform: scale(0.9); }
+
+  /* Score Display */
+  h1 { font-size: 2rem; font-weight: 800; margin-bottom: 1rem; }
+  
+  .score-display {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    background: var(--surface);
+    padding: 1rem 2rem;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+
+  .score-number {
+    font-size: 2.5rem;
+    font-weight: 900;
+    color: var(--primary);
+    line-height: 1;
+  }
+
+  .score-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* History List */
+  .section-title {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    margin: 2rem 0 1rem;
+    padding-left: 0.5rem;
+  }
+
+  .history-list { display: flex; flex-direction: column; gap: 0.75rem; }
+
+  .history-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+  }
+
+  .cat-tag {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    font-weight: 800;
+    color: var(--primary);
+    letter-spacing: 0.5px;
+  }
+
+  .action-desc { font-weight: 600; font-size: 1rem; margin: 2px 0; }
+  .action-time { font-size: 0.75rem; color: var(--text-dim); }
+
+  .points-tag {
+    font-size: 1.2rem;
+    font-weight: 800;
+    padding: 0.5rem;
+  }
+
+  .pos { color: #10b981; }
+  .neg { color: #ef4444; }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  .fade-in {
+    animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>

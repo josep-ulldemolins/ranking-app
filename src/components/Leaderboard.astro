@@ -1,0 +1,28 @@
+---
+import { supabase } from '../lib/supabase';
+
+// Obtener el ranking de la vista SQL
+const { data: leaderboard, error } = await supabase
+  .from('leaderboard')
+  .select('*');
+
+if (error) {
+  console.error('Error fetching leaderboard:', error);
+}
+---
+
+<div class="leaderboard-container">
+  <h2>Clasificació</h2>
+  {error ? (
+    <p>Error carregant la clasificació.</p>
+  ) : (
+    <ul>
+      {leaderboard?.map((user, index) => (
+        <li>
+          <span>#{index + 1} {user.name}</span>
+          <strong>{user.total_points} pts</strong>
+        </li>
+      ))}
+    </ul>
+  )}
+</div>

@@ -1,0 +1,39 @@
+---
+import { supabase } from '../lib/supabase';
+import type { Profile, Action } from '../types/database';
+
+// En producción, el user_id vendría de la sesión (Auth). 
+// Para este MVP, permitimos seleccionar el usuario.
+const { data: users } = await supabase.from('profiles').select('*').returns<Profile[]>();
+const { data: actions } = await supabase.from('actions').select('*').returns<Action[]>();
+---
+
+<section class="p-6 bg-white rounded-lg shadow-md">
+  <h2 class="text-2xl font-bold mb-4 text-gray-800">Registrar Acció</h2>
+  
+  <form action="/api/log" method="POST" class="space-y-4">
+    <div>
+      <label for="user_id" class="block text-sm font-medium text-gray-700">¿Qui ets?</label>
+      <select name="user_id" id="user_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+        <option value="">Selecciona usuari...</option>
+        {users?.map(user => (
+          <option value={user.id}>{user.name}</option>
+        ))}
+      </select>
+    </div>
+
+    <div>
+      <label for="action_id" class="block text-sm font-medium text-gray-700">¿Que has fet?</label>
+      <select name="action_id" id="action_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+        <option value="">Selecciona acció...</option>
+        {actions?.map(action => (
+          <option value={action.id}>{action.name} (+{action.points} pts)</option>
+        ))}
+      </select>
+    </div>
+
+    <button type="submit" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 transition-colors">
+      Sumar Punts
+    </button>
+  </form>
+</section>

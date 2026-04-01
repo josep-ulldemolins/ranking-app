@@ -1,0 +1,288 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { supabase } from '../../lib/supabase';
+
+const userId = Astro.cookies.get('user_id')?.value;
+if (!userId) return Astro.redirect('/');
+
+// 1. Verificación de seguridad
+const { data: currentUser } = await supabase
+  .from('users')
+  .select('is_admin')
+  .eq('id', userId)
+  .single();
+
+if (!currentUser?.is_admin) {
+  return Astro.redirect('/ranking');
+}
+
+let message = { text: '', type: '' };
+
+// 2. Procesador de Formularios Múltiples
+if (Astro.request.method === 'POST') {
+  const formData = await Astro.request.formData();
+  const intent = formData.get('intent');
+
+  try {
+    // --- GESTIÓN DE LOGS ---
+    if (intent === 'delete_log') {
+      const logId = formData.get('log_id');
+      const { error } = await supabase.from('activity_log').delete().eq('id', logId);
+      if (error) throw error;
+      message = { text: 'Registro eliminado.', type: 'success' };
+    }
+    
+    // --- GESTIÓN DE CATEGORÍAS ---
+    else if (intent === 'add_category') {
+      const name = formData.get('name');
+      const { error } = await supabase.from('categories').insert([{ name }]);
+      if (error) throw error;
+      message = { text: 'Categoría creada.', type: 'success' };
+    }
+    else if (intent === 'delete_category') {
+      const categoryId = formData.get('category_id');
+      const { error } = await supabase.from('categories').delete().eq('id', categoryId);
+      if (error) throw error;
+      message = { text: 'Categoría eliminada.', type: 'success' };
+    }
+
+    // --- GESTIÓN DE ACCIONES ---
+    else if (intent === 'add_action') {
+      const category_id = formData.get('category_id');
+      const description = formData.get('description');
+      const points = Number(formData.get('points'));
+      const { error } = await supabase.from('actions').insert([{ category_id, description, points }]);
+      if (error) throw error;
+      message = { text: 'Acción creada.', type: 'success' };
+    }
+    else if (intent === 'delete_action') {
+      const actionId = formData.get('action_id');
+      const { error } = await supabase.from('actions').delete().eq('id', actionId);
+      if (error) throw error;
+      message = { text: 'Acción eliminada.', type: 'success' };
+    }
+  } catch (error: any) {
+    message = { text: `Error: ${error.message}`, type: 'error' };
+    console.error(error);
+  }
+}
+
+// 3. Obtener todos los datos necesarios
+const [
+  { data: logs }, 
+  { data: categories }, 
+  { data: actions }
+] = await Promise.all([
+  supabase.from('activity_log').select('id, created_at, users(name), actions(description, points)').order('created_at', { ascending: false }).limit(50),
+  supabase.from('categories').select('*').order('name'),
+  supabase.from('actions').select('id, description, points, categories(name)').order('points', { ascending: false })
+]);
+
+const formatDate = (dateStr: string) => {
+  return new Date(dateStr).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
+---
+
+<Layout title="Panel Admin">
+  <div class="admin-header fade-in">
+    <h1>⚙️ Administración</h1>
+    <p>Gestión completa de la liga</p>
+  </div>
+
+  {message.text && (
+    <div class={`alert ${message.type} fade-in`}>{message.text}</div>
+  )}
+
+  <div class="admin-sections fade-in" style="animation-delay: 0.1s;">
+    
+    <details class="admin-card">
+      <summary class="admin-summary">
+        <span class="title">📁 Categorías</span>
+        <span class="chevron">▼</span>
+      </summary>
+      <div class="admin-content">
+        <form method="POST" class="add-form inline-form" style="margin-bottom: 1.5rem;">
+          <input type="hidden" name="intent" value="add_category" />
+          <input type="text" name="name" placeholder="Nombre de la categoría..." required class="premium-input" />
+          <button type="submit" class="btn-premium small">Añadir</button>
+        </form>
+
+        <ul class="item-list">
+          {categories?.map(cat => (
+            <li class="list-item">
+              <span>{cat.name}</span>
+              <form method="POST" onsubmit="return confirm('¿Borrar categoría?');">
+                <input type="hidden" name="intent" value="delete_category" />
+                <input type="hidden" name="category_id" value={cat.id} />
+                <button type="submit" class="btn-icon danger">🗑️</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+
+    <details class="admin-card">
+      <summary class="admin-summary">
+        <span class="title">⚡ Acciones</span>
+        <span class="chevron">▼</span>
+      </summary>
+      <div class="admin-content">
+        <form method="POST" class="add-form stacked-form" style="margin-bottom: 1.5rem; border: 1px solid rgba(59, 130, 246, 0.2);">
+          <input type="hidden" name="intent" value="add_action" />
+          <p style="font-size: 0.85rem; color: var(--primary); font-weight: bold; margin-bottom: 0.5rem;">Nueva Acción:</p>
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <select name="category_id" required class="premium-input">
+              <option value="" disabled selected>Selecciona categoría...</option>
+              {categories?.map(cat => <option value={cat.id}>{cat.name}</option>)}
+            </select>
+            <input type="text" name="description" placeholder="Descripción (ej: Beber agua)" required class="premium-input" />
+            <input type="number" name="points" placeholder="Puntos (ej: 10 o -5)" required class="premium-input" />
+            <button type="submit" class="btn-premium">Guardar Acción</button>
+          </div>
+        </form>
+
+        <ul class="item-list">
+          {actions?.map(action => (
+            <li class="list-item flex-col">
+              <div class="item-header">
+                <span class="badge">{action.categories?.name}</span>
+                <form method="POST" onsubmit="return confirm('¿Borrar esta acción?');">
+                  <input type="hidden" name="intent" value="delete_action" />
+                  <input type="hidden" name="action_id" value={action.id} />
+                  <button type="submit" class="btn-icon danger">🗑️</button>
+                </form>
+              </div>
+              <div class="item-body">
+                <span>{action.description}</span>
+                <span class={`pts ${action.points > 0 ? 'pos' : 'neg'}`}>{action.points > 0 ? '+' : ''}{action.points}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+
+    <details class="admin-card" open>
+      <summary class="admin-summary">
+        <span class="title">🕒 Últimos Registros</span>
+        <span class="chevron">▼</span>
+      </summary>
+      <div class="admin-content">
+        <div class="logs-container">
+          {logs?.map((log) => (
+            <div class="log-card">
+              <div class="log-info">
+                <div class="log-meta">
+                  <strong>{(log.users as any).name}</strong>
+                  <span class="time">{formatDate(log.created_at)}</span>
+                </div>
+                <div class="log-action">
+                  {(log.actions as any).description} 
+                  <span class={`pts ${(log.actions as any).points >= 0 ? 'pos' : 'neg'}`}>
+                    ({(log.actions as any).points > 0 ? '+' : ''}{(log.actions as any).points})
+                  </span>
+                </div>
+              </div>
+              <form method="POST" onsubmit="return confirm('¿Borrar este registro?');">
+                <input type="hidden" name="intent" value="delete_log" />
+                <input type="hidden" name="log_id" value={log.id} />
+                <button type="submit" class="btn-icon danger">🗑️</button>
+              </form>
+            </div>
+          ))}
+          {logs?.length === 0 && <p style="text-align:center; color: var(--text-dim);">No hay registros.</p>}
+        </div>
+      </div>
+    </details>
+
+  </div>
+</Layout>
+
+<style>
+  .admin-header { text-align: center; margin-bottom: 1.5rem; }
+  .admin-header p { color: var(--text-dim); font-size: 0.9rem; }
+
+  .admin-sections { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }
+
+  .admin-card {
+    background: var(--surface);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+  }
+
+  .admin-summary {
+    padding: 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    list-style: none;
+    font-weight: 700;
+    font-size: 1.1rem;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .admin-summary::-webkit-details-marker { display: none; }
+  
+  .chevron { transition: transform 0.3s ease; font-size: 0.8rem; color: var(--text-dim); }
+  details[open] .chevron { transform: rotate(180deg); color: var(--primary); }
+
+  .admin-content { padding: 1rem; border-top: 1px solid rgba(255,255,255,0.05); }
+
+  /* Listas genéricas */
+  .item-list { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+  .list-item { 
+    display: flex; justify-content: space-between; align-items: center; 
+    background: rgba(15, 23, 42, 0.5); padding: 0.75rem 1rem; border-radius: 12px;
+  }
+  .flex-col { flex-direction: column; align-items: stretch; gap: 8px; }
+  .item-header { display: flex; justify-content: space-between; align-items: center; }
+  .item-body { display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
+  
+  .badge { font-size: 0.7rem; text-transform: uppercase; color: var(--primary); font-weight: 700; }
+  
+  /* Inputs y Forms */
+  .inline-form { display: flex; gap: 0.5rem; }
+  .stacked-form { display: flex; flex-direction: column; gap: 0.75rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 12px; }
+  
+  .premium-input {
+    flex: 1; width: 100%;
+    background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1);
+    color: #fff; padding: 0.8rem 1rem; border-radius: 10px; outline: none; transition: 0.3s;
+  }
+  .premium-input:focus { border-color: var(--primary); }
+
+  /* Botones */
+  .btn-premium {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white; border: none; padding: 0.8rem; border-radius: 10px;
+    font-weight: 700; cursor: pointer; transition: 0.2s; text-align: center;
+  }
+  .btn-premium.small { padding: 0.8rem 1.2rem; }
+  .btn-premium:active { transform: scale(0.95); }
+
+  .btn-icon { background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 4px; transition: 0.2s; }
+  .btn-icon:active { transform: scale(0.8); }
+  .btn-icon.danger { opacity: 0.7; }
+  .btn-icon.danger:hover { opacity: 1; }
+
+  /* Logs (Historial) */
+  .logs-container { display: flex; flex-direction: column; gap: 0.75rem; }
+  .log-card { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-left: 3px solid var(--danger); background: rgba(15, 23, 42, 0.5); border-radius: 0 8px 8px 0; }
+  .log-info { flex: 1; }
+  .log-meta { display: flex; justify-content: space-between; margin-bottom: 2px; font-size: 0.85rem; }
+  .time { color: var(--text-dim); font-size: 0.75rem; }
+  .log-action { font-size: 0.95rem; }
+  
+  .pts { font-weight: bold; }
+  .pts.pos { color: #10b981; }
+  .pts.neg { color: #ef4444; }
+
+  .alert { padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; text-align: center; font-weight: 600; }
+  .alert.success { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+  .alert.error { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+
+  .fade-in { animation: fadeIn 0.4s ease-out both; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
