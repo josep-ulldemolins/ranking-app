@@ -1,0 +1,132 @@
+---
+// src/components/RadarChart.astro
+const { serializedData } = Astro.props;
+---
+
+<radar-chart data-props={JSON.stringify(serializedData)}>
+  <div class="compare-controls card">
+    <div class="select-col">
+      <label>Jugador 1</label>
+      <select id="user1" class="premium-select small">
+        {serializedData.userNames.map((name, i) => <option value={name} selected={i===0}>{name}</option>)}
+      </select>
+    </div>
+    <div class="vs-badge">VS</div>
+    <div class="select-col">
+      <label>Jugador 2 (Opcional)</label>
+      <select id="user2" class="premium-select small">
+        <option value="">-- Ninguno --</option>
+        {serializedData.userNames.map((name, i) => <option value={name} selected={i===1}>{name}</option>)}
+      </select>
+    </div>
+  </div>
+
+  <div class="card chart-wrapper radar-wrapper">
+    <canvas id="radarChart"></canvas>
+  </div>
+</radar-chart>
+
+<script>
+  class RadarChart extends HTMLElement {
+    constructor() {
+      super();
+
+      // Leer los datos pasados desde el servidor
+      const data = JSON.parse(this.dataset.props);
+      
+      const ctxRadar = this.querySelector('#radarChart');
+      const select1 = this.querySelector('#user1');
+      const select2 = this.querySelector('#user2');
+      let miRadarActivo = null;
+
+      if (!ctxRadar || !select1 || !select2) return;
+
+      // Función extractora (Filtra negativos con Math.max)
+      const getRadarData = (userName) => {
+        if (!userName || userName === "") return data.categories.map(() => 0); 
+        
+        return data.categories.map(cat => {
+          const stat = data.categoryStats.find(s => s.user_name === userName && s.category_name === cat);
+          // Los negativos se dibujan como 0 en el radar para no romper la gráfica
+          return stat ? Math.max(0, Number(stat.total_points)) : 0; 
+        });
+      };
+
+      // Función renderizadora (Destruye y crea para evitar bugs visuales)
+      const dibujarRadar = () => {
+        const val1 = select1.value.trim();
+        const val2 = select2.value.trim();
+
+        if (miRadarActivo) {
+          miRadarActivo.destroy();
+        }
+
+        miRadarActivo = new Chart(ctxRadar, {
+          type: 'radar',
+          data: {
+            labels: data.categories,
+            datasets: [
+              {
+                label: val1,
+                data: getRadarData(val1),
+                backgroundColor: 'rgba(59, 130, 246, 0.2)', 
+                borderColor: '#3b82f6', 
+                borderWidth: 2, 
+                pointBackgroundColor: '#3b82f6',
+                pointRadius: 4,
+                pointHoverRadius: 6
+              },
+              {
+                label: val2 || "Ninguno",
+                data: getRadarData(val2),
+                backgroundColor: 'rgba(16, 185, 129, 0.2)', 
+                borderColor: '#10b981', 
+                borderWidth: 2, 
+                pointBackgroundColor: '#10b981',
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                hidden: !val2 || val2 === ""
+              }
+            ]
+          },
+          options: {
+            responsive: true, 
+            maintainAspectRatio: false,
+            animation: { duration: 400 },
+            scales: {
+              r: {
+                angleLines: { color: 'rgba(255,255,255,0.1)' }, 
+                grid: { color: 'rgba(255,255,255,0.05)' },
+                pointLabels: { font: { size: 12, weight: '600', family: "'Inter', sans-serif" }, color: '#e2e8f0' }, 
+                ticks: { display: false }
+              }
+            },
+            plugins: { 
+              legend: { position: 'bottom', labels: { color: '#e2e8f0', usePointStyle: true, boxWidth: 8, padding: 25, font: { size: 12, weight: 'bold', family: "'Inter', sans-serif" } } },
+              tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.9)', titleColor: '#fff', bodyColor: '#cbd5e1' }
+            }
+          }
+        });
+      };
+
+      // Inicialización y eventos
+      // Damos un pequeño respiro de 50ms para asegurar que Chart.js ha cargado a nivel global
+      setTimeout(dibujarRadar, 50);
+      select1.addEventListener('change', dibujarRadar);
+      select2.addEventListener('change', dibujarRadar);
+    }
+  }
+
+  // Registramos el Web Component
+  customElements.define('radar-chart', RadarChart);
+</script>
+
+<style>
+  .radar-wrapper { height: 400px; }
+  .compare-controls { display: flex; align-items: center; justify-content: space-between; padding: 1rem; margin-bottom: 1rem; background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border-radius: 16px; }
+  .select-col { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+  .select-col label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700; }
+  .vs-badge { margin: 0 1rem; padding: 0.5rem; background: var(--bg); color: var(--primary); font-weight: 900; font-size: 0.8rem; border-radius: 50%; margin-top: 15px; border: 1px solid rgba(59, 130, 246, 0.3); }
+  .premium-select.small { padding: 0.6rem 0.5rem; font-size: 0.9rem; background: rgba(15, 23, 42, 0.9); width: 100%; border: 1px solid rgba(255,255,255,0.1); color: white; border-radius: 8px; }
+  .chart-wrapper { background: var(--surface); border: 1px solid rgba(255,255,255,0.05); border-radius: 16px; padding: 1.25rem; box-shadow: 0 10px 25px rgba(0,0,0,0.2); position: relative; }
+</style>

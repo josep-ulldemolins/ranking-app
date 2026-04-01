@@ -5,40 +5,16 @@ import { supabase } from '../lib/supabase';
 const userId = Astro.cookies.get('user_id')?.value;
 if (!userId) return Astro.redirect('/');
 
-let message = { text: '', type: '' };
-
-// Procesar el envío de un solo clic
-if (Astro.request.method === 'POST') {
-  const formData = await Astro.request.formData();
-  const actionId = formData.get('action_id');
-  const targetUserId = formData.get('target_user_id');
-
-  if (typeof actionId === 'string' && typeof targetUserId === 'string') {
-    const { error } = await supabase
-      .from('activity_log')
-      .insert([{ 
-        user_id: targetUserId, 
-        action_id: actionId 
-      }]);
-
-    if (error) {
-      message = { text: 'Error al registrar la acción.', type: 'error' };
-    } else {
-      return Astro.redirect('/ranking');
-    }
-  }
-}
-
-// 1. Obtener datos
+// 1. Obtener datos (Usuarios y Acciones con sus categorías)
 const [{ data: users }, { data: actions }] = await Promise.all([
   supabase.from('users').select('id, name').order('name'),
   supabase.from('actions').select('id, description, points, categories(name)').order('points', { ascending: false })
 ]);
 
-// 2. Agrupar las acciones por categoría en el servidor para facilitar el renderizado
+// 2. Agrupar las acciones por categoría
 const categoriesMap = new Map();
 actions?.forEach(action => {
-  // @ts-ignore (Supabase typings para joins)
+  // @ts-ignore
   const catName = action.categories.name;
   if (!categoriesMap.has(catName)) {
     categoriesMap.set(catName, []);
@@ -53,15 +29,13 @@ actions?.forEach(action => {
     <p class="subtitle">Toca una acción para registrarla al instante</p>
   </div>
 
-  {message.text && (
-    <div class={`alert ${message.type}`}>{message.text}</div>
-  )}
+  <div id="toast" class="toast hidden">¡Added!</div>
 
-  <form method="POST" class="add-form fade-in" style="animation-delay: 0.1s;">
+  <div class="add-form fade-in" style="animation-delay: 0.1s;">
     <div class="field">
-      <label>Participante</label>
+      <label>¿Para quién son los puntos?</label>
       <div class="input-group">
-        <select name="target_user_id" required class="premium-select">
+        <select id="target_user_id" required class="premium-select">
           {users?.map(u => (
             <option value={u.id} selected={u.id === userId}>
               {u.name} {u.id === userId ? '(Tú)' : ''}
@@ -87,10 +61,9 @@ actions?.forEach(action => {
           <div class="actions-list">
             {catActions.map((action: any) => (
               <button 
-                type="submit" 
-                name="action_id" 
-                value={action.id} 
+                type="button" 
                 class="direct-action-btn"
+                data-action-id={action.id}
               >
                 <span class="desc">{action.description}</span>
                 <span class={`pts-badge ${action.points > 0 ? 'pos' : 'neg'}`}>
@@ -102,8 +75,54 @@ actions?.forEach(action => {
         </details>
       ))}
     </div>
-  </form>
+  </div>
 </Layout>
+
+<script>
+  // Lógica de envío sin recarga (AJAX)
+  const buttons = document.querySelectorAll('.direct-action-btn');
+  const toast = document.getElementById('toast');
+  const selectUser = document.getElementById('target_user_id') as HTMLSelectElement;
+
+  buttons.forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const targetUserId = selectUser.value;
+      const actionId = btn.getAttribute('data-action-id');
+
+      // Feedback visual inmediato
+      btn.classList.add('loading');
+
+      try {
+        const response = await fetch('/api/log-points', {
+          method: 'POST',
+          body: JSON.stringify({ targetUserId, actionId }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+          showToast();
+        } else {
+          alert("Error al guardar. Inténtalo de nuevo.");
+        }
+      } catch (err) {
+        console.error("Error en la petición:", err);
+      } finally {
+        btn.classList.remove('loading');
+      }
+    });
+  });
+
+  function showToast() {
+    if (!toast) return;
+    toast.classList.remove('hidden');
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => toast.classList.add('hidden'), 300);
+    }, 2000);
+  }
+</script>
 
 <style>
   .page-header { margin-bottom: 2rem; }
@@ -113,113 +132,64 @@ actions?.forEach(action => {
   .field { margin-bottom: 2rem; }
   label { display: block; margin-bottom: 0.75rem; color: var(--text-dim); font-size: 0.9rem; font-weight: 600; }
   
-  /* Select Premium */
+  /* Select Estilizado */
   .input-group { position: relative; }
   .premium-select {
-    width: 100%; 
-    max-width: 100%; /* Evita que crezca más que la pantalla */
-    appearance: none; 
-    background: var(--surface);
-    border: 1px solid rgba(255, 255, 255, 0.1); 
-    color: #fff;
-    /* Ajustamos el padding derecho a 2.5rem para dejar sitio al icono */
-    padding: 1.1rem 2.5rem 1.1rem 1rem; 
-    border-radius: 14px; 
-    font-size: 1rem; 
-    font-weight: 500;
-    outline: none; 
-    transition: all 0.3s ease; 
-    cursor: pointer;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    
-    /* El truco mágico para nombres largos: */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    width: 100%; max-width: 100%; appearance: none; background: var(--surface);
+    border: 1px solid rgba(255, 255, 255, 0.1); color: #fff;
+    padding: 1.1rem 2.5rem 1.1rem 1rem; border-radius: 14px; font-size: 1rem; font-weight: 500;
+    outline: none; transition: 0.3s; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .premium-select:focus { border-color: var(--primary); background: rgba(30, 41, 59, 0.9); }
   .select-icon { position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-dim); }
 
-  /* Acordeón de Categorías */
+  /* Categorías */
   .categories-container { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 2rem; }
 
   .category-card {
-    background: var(--surface);
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
-    transition: all 0.3s ease;
+    background: var(--surface); border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.05);
+    overflow: hidden; transition: 0.3s;
   }
 
   .category-header {
-    padding: 1.25rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    list-style: none; /* Quita la flecha nativa */
-    user-select: none;
-    background: rgba(255, 255, 255, 0.02);
+    padding: 1.25rem; display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer; list-style: none; user-select: none; background: rgba(255, 255, 255, 0.02);
   }
-  
-  /* Quita la flecha nativa en Safari/Webkit */
   .category-header::-webkit-details-marker { display: none; }
-
-  .category-title { font-weight: 700; font-size: 1.1rem; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text); }
-  
-  .chevron { transition: transform 0.3s ease; color: var(--text-dim); display: flex; }
-  
-  /* Rota la flecha cuando el <details> está abierto */
+  .category-title { font-weight: 700; font-size: 1.1rem; text-transform: uppercase; }
+  .chevron { transition: 0.3s; color: var(--text-dim); }
   details[open] .chevron { transform: rotate(180deg); color: var(--primary); }
-  details[open] { border-color: rgba(59, 130, 246, 0.3); }
 
-  /* Lista de botones internos */
-  .actions-list {
-    padding: 0 1rem 1rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    animation: slideDown 0.2s ease-out;
-  }
+  /* Botones de Acción */
+  .actions-list { padding: 0 1rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
-  /* El botón de acción directa */
   .direct-action-btn {
-    width: 100%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: rgba(15, 23, 42, 0.5); /* Fondo más oscuro que la tarjeta */
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    padding: 1rem;
-    border-radius: 12px;
-    color: var(--text);
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    text-align: left;
+    width: 100%; display: flex; justify-content: space-between; align-items: center;
+    background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 1rem; border-radius: 12px; color: var(--text); cursor: pointer;
+    transition: all 0.2s; text-align: left;
   }
 
-  .direct-action-btn:hover { background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); }
-  
-  .direct-action-btn:active {
-    transform: scale(0.97);
-    background: var(--primary);
-    border-color: var(--primary);
+  .direct-action-btn:active, .direct-action-btn.loading {
+    transform: scale(0.97); background: var(--primary); border-color: var(--primary);
   }
 
   .desc { font-weight: 500; font-size: 1rem; flex: 1; padding-right: 1rem; }
-  
-  .pts-badge { font-weight: 800; font-size: 0.95rem; padding: 4px 10px; border-radius: 20px; }
+  .pts-badge { font-weight: 800; font-size: 0.9rem; padding: 4px 10px; border-radius: 20px; }
   .pos { background: rgba(16, 185, 129, 0.15); color: #10b981; }
   .neg { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
-  
-  .direct-action-btn:active .pts-badge { background: rgba(255,255,255,0.2); color: white; }
 
-  .alert { padding: 1rem; border-radius: 12px; margin-bottom: 1.5rem; text-align: center; }
-  .error { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); }
+  /* Toast Notification */
+  .toast {
+    position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+    background: #10b981; color: white; padding: 12px 24px; border-radius: 50px;
+    font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 2000;
+    transition: all 0.3s; opacity: 0; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(10px); }
+  .toast.hidden { display: none; }
 
-  .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
-
+  .fade-in { animation: fadeIn 0.4s ease-out both; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
-  @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 </style>

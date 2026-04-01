@@ -54,6 +54,10 @@ if (userId) {
           <span class="icon">👤</span>
           <span class="label">Perfil</span>
         </a>
+        <a href={`/stats`} class={currentPath === `/stats` ? 'active' : ''}>
+          <span class="icon">📊</span>
+          <span class="label">Estadísticas</span>
+        </a>
         {isAdmin && (
           <a href="/admin/dashboard" class={currentPath.startsWith('/admin') ? 'active' : ''}>
             <span class="icon">⚙️</span>
