@@ -11,8 +11,10 @@ export default defineConfig({
   adapter: node({
     mode: 'standalone'
   }),
+  site: 'https://ranking.socplanner.com',
+  
   security: {
-    checkOrigin: false
+    checkOrigin: true
   },
 
   vite: {
